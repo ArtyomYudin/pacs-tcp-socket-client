@@ -1,16 +1,15 @@
-# This is a sample Python script.
+import os
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+from classes.tcpclient import TcpClient
+
+HOST = '172.20.57.7'  # The remote host
+PORT: int = 24532
+
+server_key = f'{os.path.dirname(__file__)}/certs/key.pem'
+server_cert = f'{os.path.dirname(__file__)}/certs/cert.pem'
 
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
-
-
-# Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    pacs_tcp_client = TcpClient(host=HOST, port=PORT, server_key=server_key, server_cert=server_cert, is_verbose=True)
+    pacs_tcp_client.connect()
+    #asyncio.run(c)
