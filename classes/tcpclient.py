@@ -5,6 +5,8 @@ import ssl
 import struct
 import sys
 
+from classes.db import DB
+
 
 class TcpClient:
     __filter_events_command = json.dumps({
@@ -40,7 +42,7 @@ class TcpClient:
         handler.setFormatter(log_format)
         self.logger.addHandler(handler)
 
-        #self.db = DB(user='itsupport', password='gRzXJHxq7qLM', database='itsupport', host='postgresql')
+        self.db = DB(user='itsupport', password='gRzXJHxq7qLM', database='itsupport', host='postgresql')
 
 
     def __create_buffer(self, post_json_data):
@@ -50,7 +52,7 @@ class TcpClient:
         buffer_with_byte[4:] = buffer
         return bytes(buffer_with_byte)
 
-    def connect(self):
+    async def connect(self):
         connected = False
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.options &= ~ssl.OP_NO_TLSv1_3 & ~ssl.OP_NO_TLSv1_2 & ~ssl.OP_NO_TLSv1_1
@@ -112,5 +114,5 @@ class TcpClient:
                             client.sendall(self.__create_buffer(self.__ping_command))
                             self.logger.debug(f'RECEIVED: {received}')
                         case 'events':
-                            #await self.db.execute('''INSERT INTO public.pacs_event(created, ap_id, owner_id, card, code) VALUES(1, 1, 1, 1, 1)''' )
+                            await self.db.execute('''INSERT INTO public.pacs_event(created, ap_id_id, owner_id_id, card, code) VALUES('31.10.2024 17:27:14', 1, 1, 1, 1)''' )
                             self.logger.debug(f'RECEIVED: {received}')

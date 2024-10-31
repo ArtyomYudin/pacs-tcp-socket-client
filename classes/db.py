@@ -1,3 +1,8 @@
+import asyncio
+
+import asyncpg
+
+
 class DB:
     def __init__(self, user, password, host, database):
         self.user = user
@@ -34,6 +39,4 @@ class DB:
 
 #async def main():
 #    db = DB(user='itsupport', password='gRzXJHxq7qLM', database='itsupport', host='10.3.0.2')
-#    await db.execute('''INSERT INTO pacs_event(created, ap_id, owner_id, card, code) VALUES(1, 1, 1, 1, 1)''' )
-#
-#asyncio.run(main())
+#    await db.execute('''INSERT INTO pacs_event(created, ap_id_id, owner_id_id, card, code) VALUES(1, 1, 1, 1, 1)''' )

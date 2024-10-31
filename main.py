@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from classes.tcpclient import TcpClient
@@ -11,5 +12,5 @@ server_cert = f'{os.path.dirname(__file__)}/certs/cert.pem'
 
 if __name__ == '__main__':
     pacs_tcp_client = TcpClient(host=HOST, port=PORT, server_key=server_key, server_cert=server_cert, is_verbose=True)
-    pacs_tcp_client.connect()
-    #asyncio.run(c)
+    c =pacs_tcp_client.connect()
+    asyncio.run(c)
