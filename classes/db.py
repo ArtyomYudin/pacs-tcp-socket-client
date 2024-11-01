@@ -1,7 +1,4 @@
-import asyncio
-
 import asyncpg
-
 
 class DB:
     def __init__(self, user, password, host, database):
@@ -19,8 +16,6 @@ class DB:
 
     async def execute(self, query, *args):
         if self.connection is None:
-            print('EXECUTE NO CONNECTION !!!!!!!')
-            #await self.connect()
             self.connection = await asyncpg.connect(user=self.user, password=self.password,
                                                     database=self.database, host=self.host)
         result = await self.connection.execute(query, *args)
@@ -35,8 +30,3 @@ class DB:
     async def close(self):
         if self.connection is not None:
             await self.connection.close()
-
-
-#async def main():
-#    db = DB(user='itsupport', password='gRzXJHxq7qLM', database='itsupport', host='10.3.0.2')
-#    await db.execute('''INSERT INTO pacs_event(created, ap_id_id, owner_id_id, card, code) VALUES(1, 1, 1, 1, 1)''' )

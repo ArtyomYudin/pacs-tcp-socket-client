@@ -30,7 +30,7 @@
 *$py.class
 
 
-# celery
+# celery_config
 celerybeat-schedule.*
 
 # Environments
