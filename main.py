@@ -1,11 +1,13 @@
 import asyncio
 import json
 import os
+from multiprocessing.reduction import recvfds
 
 from classes.db import DB
 from classes.tcpclient import TcpClient
 from utils.logger import get_logger
-from utils.functions import create_buffer, datetime_to_timestamp
+from utils.functions import create_buffer, datetime_to_timestamp, insert_event_to_db, chunk_data, load_system_ap, \
+    load_system_card_owner
 
 HOST = '172.20.57.7'  # The remote host
 PORT: int = 24532
@@ -26,12 +28,28 @@ __ping_command = json.dumps({
     'Version': 1,
 })
 
+__userlist_command = json.dumps({
+    'Command': 'userlist',
+    'Id': 1,
+    'Version': 1,
+})
+
+__aplist_command = json.dumps({
+    'Command': 'aplist',
+    'Id': 1,
+    'Version': 1,
+})
+
+
 async def receive_data(client):
     with client:
         client.sendall(create_buffer(__filter_events_command))
-        # print(create_buffer(filter_events_command))
+        client.sendall(create_buffer(__aplist_command))
+        client.sendall(create_buffer(__userlist_command))
+
         while True:
-            data = client.recv(1024)
+            data = chunk_data(client)
+            #data = client.recv(1024)
             if data:
                 received = json.loads(data[4:].decode('utf-8'))
                 match received['Command']:
@@ -40,16 +58,13 @@ async def receive_data(client):
                         logger.debug(f'RECEIVED: {received}')
                     case 'events':
                         logger.debug(f'RECEIVED: {received}')
-                        ev_time = received['Data'][0]['EvTime']
-                        ev_ap = received['Data'][0]['EvAddr']
-                        ev_owner = received['Data'][0]['EvUser']
-                        ev_card = received['Data'][0]['EvCard']
-                        ev_code = received['Data'][0]['EvCode']
-                        await db.execute('''
-                            INSERT INTO public.pacs_event(created, ap_id, owner_id, card, code)
-                            VALUES($1, $2, $3, $4, $5)
-                            ''', datetime_to_timestamp(ev_time), ev_ap, ev_owner, ev_card, ev_code)
-
+                        await insert_event_to_db(db, received['Data'])
+                    case 'userlist':
+                        await load_system_card_owner(db, received['Data'])
+                        #logger.debug(f'RECEIVED: {received}')
+                    case 'aplist':
+                        await load_system_ap(db, received['Data'])
+                        #logger.debug(f'RECEIVED: {received}')
 
 if __name__ == '__main__':
 
