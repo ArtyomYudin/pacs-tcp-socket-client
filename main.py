@@ -74,7 +74,7 @@ async def receive_data(client):
                             rmq_channel.basic_publish(
                                 exchange='',
                                 routing_key=RMQ_QUEUE_NAME,
-                                body='result[0]'
+                                body=str(result[0])
                             )
                             print(result[0])
                     case 'userlist':
