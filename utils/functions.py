@@ -32,10 +32,12 @@ async def insert_event_to_db(db, received):
         ev_owner = None if event_data['EvUser'] == 0 else event_data['EvUser']
         ev_card = event_data['EvCard']
         ev_code = event_data['EvCode']
-        await db.execute('''
+        result = await db.fetch_row('''
             INSERT INTO public.pacs_event(created, ap_id, owner_id, card, code)
             VALUES($1, $2, $3, $4, $5)
+            RETURNING id
             ''', datetime_to_timestamp(ev_time), ev_ap, ev_owner, ev_card, ev_code)
+        return result
 
 
 async def load_system_ap(db, ap_list):
