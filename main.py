@@ -76,7 +76,7 @@ async def receive_data(client):
                                 routing_key=RMQ_QUEUE_NAME,
                                 body=str(result[0])
                             )
-                            print(result[0])
+                            #print(result[0])
                     case 'userlist':
                         await load_system_card_owner(db, received['Data'])
                         #logger.debug(f'RECEIVED: {received}')
