@@ -37,7 +37,7 @@ async def insert_event_to_db(db, received):
             VALUES($1, $2, $3, $4, $5)
             RETURNING id
             ''', datetime_to_timestamp(ev_time), ev_ap, ev_owner, ev_card, ev_code)
-        return result
+        return result if ev_owner else None
 
 
 async def load_system_ap(db, ap_list):
