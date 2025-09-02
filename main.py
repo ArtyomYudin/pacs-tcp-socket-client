@@ -1,120 +1,179 @@
 import asyncio
 import json
 import os
-from multiprocessing.reduction import recvfds
+import signal
+import sys
 
-import pika
-
-from classes.db import DB
-from classes.tcpclient import TcpClient
-from classes.rabbitmq import RabbitMQConnection, RabbitMQProducer
+from dotenv import load_dotenv
+from core.db import DB
+from core.tcpclient import TcpClient
+from core.rabbitmq import RabbitMQProducer
 from utils.logger import get_logger
-from utils.functions import create_buffer, datetime_to_timestamp, insert_event_to_db, chunk_data, load_system_ap, \
+
+from utils.functions import (
+    create_buffer,
+    insert_event_to_db,
+    chunk_data_async,
+    load_system_ap,
     load_system_card_owner
+)
+
+# Загружаем переменные из .env
+load_dotenv()
+logger = get_logger("tcp_client")
+
+# Читаем настройки из .env
+# RabbitMQ
+RMQ_HOST = os.getenv("RMQ_HOST", "rabbitmq")
+RMQ_PORT = int(os.getenv("RMQ_PORT", 5672))
+RMQ_VIRTUAL_HOST = os.getenv("RMQ_VIRTUAL_HOST", "/")
+RMQ_USER = os.getenv("RMQ_USER", "guest")
+RMQ_PASSWORD = os.getenv("RMQ_PASSWORD", "guest")
+RMQ_QUEUE_NAME = os.getenv("RMQ_QUEUE_NAME", "pacs_client")
+
+# TCP сервер
+TCP_SERVER_HOST = os.getenv("TCP_SERVER_HOST", "localhost")
+TCP_SERVER_PORT = int(os.getenv("TCP_SERVER_PORT", 9000))
+TCP_SERVER_CERT = os.getenv("TCP_SERVER_CERT", "certs/cert.pem")
+TCP_SERVER_KEY = os.getenv("TCP_SERVER_KEY", "certs/key.pem")
+
+# Postgres
+DB_USER = os.getenv("POSTGRES_USER", "postgres")
+DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
+DB_NAME = os.getenv("POSTGRES_DB", "pacs")
+DB_HOST = os.getenv("POSTGRES_HOST", "postgres")
+
+# Команды
+FILTER_EVENTS_CMD = json.dumps({"Command": "filterevents", "Id": 1, "Version": 1, "Filter": 1})
+PING_CMD = json.dumps({"Command": "ping", "Id": 1, "Version": 1})
+USERLIST_CMD = json.dumps({"Command": "userlist", "Id": 1, "Version": 1})
+APLIST_CMD = json.dumps({"Command": "aplist", "Id": 1, "Version": 1})
 
 
-API_SERVER_HOST = '172.20.57.7'  # The remote host
-API_SERVER_PORT: int = 24532
+# глобальное событие остановки
+shutdown_event = asyncio.Event()
 
-RMQ_HOST = 'rabbitmq'
-RMQ_PORT = 5672
-RMQ_VIRTUAL_HOST = 'it_support'
-RMQ_USER = 'pacs_tcp_client'
-RMQ_PASSWORD = '97OUWipH4txB'
-
-RMQ_QUEUE_NAME = 'pacs_client'
-
-server_key = f'{os.path.dirname(__file__)}/certs/key.pem'
-server_cert = f'{os.path.dirname(__file__)}/certs/cert.pem'
-
-__filter_events_command = json.dumps({
-        'Command': 'filterevents',
-        'Id': 1,
-        'Version': 1,
-        'Filter': 1,
-    })
-
-__ping_command = json.dumps({
-    'Command': 'ping',
-    'Id': 1,
-    'Version': 1,
-})
-
-__userlist_command = json.dumps({
-    'Command': 'userlist',
-    'Id': 1,
-    'Version': 1,
-})
-
-__aplist_command = json.dumps({
-    'Command': 'aplist',
-    'Id': 1,
-    'Version': 1,
-})
+producer_instance: RabbitMQProducer | None = None
 
 
-async def receive_data(client):
-    with client:
-        client.sendall(create_buffer(__filter_events_command))
-        client.sendall(create_buffer(__aplist_command))
-        client.sendall(create_buffer(__userlist_command))
+def handle_exit(signum, frame):
+    """Обработчик сигналов завершения (graceful shutdown)."""
+    logger.info("Получен сигнал отключения...")
+    shutdown_event.set()
+    if producer_instance:
+        producer_instance.close()  # жёстко рвём соединение
 
-        while True:
-            data = chunk_data(client)
-            #data = client.recv(1024)
-            if data:
-                received = json.loads(data[4:].decode('utf-8'))
-                match received['Command']:
-                    case 'ping':
-                        client.sendall(create_buffer(__ping_command))
-                        logger.debug(f'RECEIVED: {received}')
-                    case 'events':
-                        logger.debug(f'RECEIVED: {received}')
-                        result = await insert_event_to_db(db, received['Data'])
-                        if result:
-                            #rmq_channel.queue_declare(queue=RMQ_QUEUE_NAME, durable = True)  # Создание очереди (если не существует)
-                            #rmq_channel.basic_publish(
-                            #    exchange='',
-                            #    routing_key=RMQ_QUEUE_NAME,
-                            #    body=str(result[0]),
-                            #    properties=pika.BasicProperties(
-                            #        delivery_mode=pika.DeliveryMode.Persistent
-                            #    )
-                            #)
-                            producer.publish(queue_name=RMQ_QUEUE_NAME, message=str(result[0]))
-                            #print(result[0])
-                    case 'userlist':
-                        await load_system_card_owner(db, received['Data'])
-                        #logger.debug(f'RECEIVED: {received}')
-                    case 'aplist':
-                        await load_system_ap(db, received['Data'])
-                        #logger.debug(f'RECEIVED: {received}')
+async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer):
+    """
+    Основной цикл приёма данных от PACS.
 
-if __name__ == '__main__':
+    :param client: экземпляр TcpClient
+    :param db: подключение к Postgres
+    :param producer: продюсер сообщений RabbitMQ
+    """
+    """Основной цикл приёма данных от PACS"""
+    await client.send(create_buffer(FILTER_EVENTS_CMD))
+    await client.send(create_buffer(APLIST_CMD))
+    await client.send(create_buffer(USERLIST_CMD))
 
-    logger = get_logger(True)
+    while not shutdown_event.is_set():
+        try:
+            raw_data = await chunk_data_async(client)
+            if not raw_data or len(raw_data) < 4:
+                logger.warning("Получены пустые или недействительные данные")
+                continue # просто проверили таймаут → снова в цикл
 
-    pacs_tcp_client = TcpClient(host=API_SERVER_HOST, port=API_SERVER_PORT, server_key=server_key, server_cert=server_cert, logger=logger)
-    db = DB(user='itsupport', password='gRzXJHxq7qLM', database='itsupport', host='postgresql')
+            payload = raw_data[4:]
+            try:
+                received = json.loads(payload.decode('utf-8'))
+            except json.JSONDecodeError as e:
+                logger.error(f"Получен недопустимый JSON: {e}, данные: {payload[:200]}...")
+                continue
+
+            command = received.get("Command")
+            data = received.get("Data")
+
+            match command:
+                case "ping":
+                    await client.send(create_buffer(PING_CMD))
+                    logger.debug(f"RECEIVED: {received}")
+
+                case "events":
+                    logger.debug(f"RECEIVED: {received}")
+                    if isinstance(data, list):
+                        event_ids = await insert_event_to_db(db, data)
+                        for eid in event_ids:
+                            await producer.publish(RMQ_QUEUE_NAME, eid)
+                    else:
+                        logger.warning(f"Ожидался список в 'events.Data', получен {type(data)}: {data}")
+
+                case "userlist":
+                    if isinstance(data, list):
+                        await load_system_card_owner(db, data)
+                    else:
+                        logger.warning(f"Ожидался список в 'userlist.Data', получен {type(data)}: {data}")
+
+                case "aplist":
+                    if isinstance(data, list):
+                        await load_system_ap(db, data)
+                    else:
+                        logger.warning(f"Ожидался список в 'aplist.Data', получен {type(data)}: {data}")
+
+                case _:
+                    logger.warning(f"Неизвестная или отсутствующая команда: {received}")
+
+        except Exception as e:
+            logger.error(f"Ошибка в receive_data: {e}")
+            await asyncio.sleep(1)  # чтобы не зациклиться
 
 
+async def main():
+    """
+    Точка входа в приложение.
 
-    #rmq_connection_params = pika.ConnectionParameters(
-    #    host = RMQ_HOST,
-    #    port = RMQ_PORT,
-    #    virtual_host = RMQ_VIRTUAL_HOST,
-    #    credentials = pika.PlainCredentials(
-    #        username = RMQ_USER,
-    #        password = RMQ_PASSWORD
-    #    )
-    #)
-    #rmq_connection = pika.BlockingConnection(rmq_connection_params)
-    with RabbitMQConnection(host = RMQ_HOST, port = RMQ_PORT, virtual_host = RMQ_VIRTUAL_HOST,
-                             username= RMQ_USER, password= RMQ_PASSWORD) as rmq_connection:
-        producer = RabbitMQProducer(rmq_connection)
+    Инициализация БД, RabbitMQ и TCP клиента.
+    Запуск цикла обработки данных.
+    """
 
-    #rmq_channel = rmq_connection.channel()
+    db = DB(user=DB_USER, password=DB_PASSWORD, host=DB_HOST, database=DB_NAME)
+    await db.connect()
 
-        tcp_client = pacs_tcp_client.connect()
+    # global producer_instance
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(shutdown()))
+    loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(shutdown()))
 
-        asyncio.run(receive_data(tcp_client))
+    async def shutdown():
+        logger.info("Получен сигнал отключения...")
+        shutdown_event.set()
+        
+    try:
+        async with RabbitMQProducer(
+                host=RMQ_HOST,
+                port=RMQ_PORT,
+                virtual_host=RMQ_VIRTUAL_HOST,
+                username=RMQ_USER,
+                password=RMQ_PASSWORD
+        ) as producer, TcpClient(
+            host=TCP_SERVER_HOST,
+            port=TCP_SERVER_PORT,
+            server_cert=TCP_SERVER_CERT,
+            server_key=TCP_SERVER_KEY,
+            logger=logger,
+        ) as client:
+            logger.info("Клиент PACS TCP запущен")
+            await receive_data(client, db, producer)
+    except Exception as e:
+        logger.error(f"TCP соединение не удалось: {e}")
+        sys.exit(1)
+    finally:
+        logger.info("Закрытие соединений...")
+        await db.close()
+        logger.info("DB закрыта")
+
+if __name__ == "__main__":
+
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+         handle_exit(None, None)
