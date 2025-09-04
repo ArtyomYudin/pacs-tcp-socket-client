@@ -140,7 +140,7 @@ async def load_system_ap(db: DB, ap_list: List[Dict[str, Any]]):
             name = ap["Name"]
             await db.execute(
                 """
-                INSERT INTO public.pacs_accesspoint(system_id, name)
+                INSERT INTO public.pacs_access_point(system_id, name)
                 VALUES($1, $2)
                 ON CONFLICT (system_id)
                 DO UPDATE SET name=$2
@@ -170,7 +170,7 @@ async def load_system_card_owner(db: DB, user_list: List[Dict[str, Any]]):
             lastname = user["LastName"]
             await db.execute(
                 """
-                INSERT INTO public.pacs_cardowner(system_id, firstname, secondname, lastname)
+                INSERT INTO public.pacs_card_owner(system_id, firstname, secondname, lastname)
                 VALUES ($1, $2, $3, $4) ON CONFLICT (system_id)
                    DO
                 UPDATE SET firstname=$2, secondname=$3, lastname=$4
