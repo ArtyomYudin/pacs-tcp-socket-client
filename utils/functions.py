@@ -110,7 +110,7 @@ async def insert_event_to_db(db: DB, events: List[Dict[str, Any]]) -> List[str]:
         try:
             row = await db.fetch_row(
                 """
-                INSERT INTO public.pacs_event(created, ap_id, owner_id, card, code)
+                INSERT INTO public.pacs_event(created, ap_id, owner_id, card_number, code)
                 VALUES($1, $2, $3, $4, $5)
                 RETURNING id
                 """,
