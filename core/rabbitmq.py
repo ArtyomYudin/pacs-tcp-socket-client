@@ -1,5 +1,6 @@
 import asyncio
 import aio_pika
+import json
 from aio_pika import RobustConnection, RobustChannel, Message, DeliveryMode
 from aio_pika.exceptions import AMQPConnectionError
 from typing import Dict
@@ -75,7 +76,7 @@ class RabbitMQProducer:
             queue = await self.channel.declare_queue(queue_name, durable=True)
             await self.channel.default_exchange.publish(
                 Message(
-                    body=message.encode(),
+                    body=json.dumps(message).encode('utf-8'),
                     delivery_mode=DeliveryMode.PERSISTENT
                 ),
                 routing_key=queue.name
