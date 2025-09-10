@@ -103,7 +103,7 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer):
                     if isinstance(data, list):
                         event_ids = await insert_event_to_db(db, data)
                         for eid in event_ids:
-                            await producer.publish(RMQ_QUEUE_NAME, eid)
+                            await producer.publish(RMQ_QUEUE_NAME, {"new_pacs_event_id": eid})
                     else:
                         logger.warning(f"Ожидался список в 'events.Data', получен {type(data)}: {data}")
 

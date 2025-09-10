@@ -2,6 +2,7 @@ import asyncio
 import aio_pika
 from aio_pika import RobustConnection, RobustChannel, Message, DeliveryMode
 from aio_pika.exceptions import AMQPConnectionError
+from typing import Dict
 
 from utils.logger import get_logger
 
@@ -59,7 +60,7 @@ class RabbitMQProducer:
 
         raise ConnectionError(f"Не удалось подключиться к RabbitMQ по адресу {self.host}:{self.port}")
 
-    async def publish(self, queue_name: str, message: str):
+    async def publish(self, queue_name: str, message: Dict[str, any]):
         """
         Асинхронная отправка сообщения в очередь.
 
