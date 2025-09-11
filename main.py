@@ -29,7 +29,7 @@ RMQ_PORT = int(os.getenv("RMQ_PORT", 5672))
 RMQ_VIRTUAL_HOST = os.getenv("RMQ_VIRTUAL_HOST", "/")
 RMQ_USER = os.getenv("RMQ_USER", "guest")
 RMQ_PASSWORD = os.getenv("RMQ_PASSWORD", "guest")
-RMQ_QUEUE_NAME = os.getenv("RMQ_QUEUE_NAME", "pacs_client")
+RMQ_EXCHANGE_NAME = os.getenv("RMQ_EXCHANGE_NAME", "pacs_client")
 
 # TCP сервер
 TCP_SERVER_HOST = os.getenv("TCP_SERVER_HOST", "localhost")
@@ -103,7 +103,7 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer):
                     if isinstance(data, list):
                         event_ids = await insert_event_to_db(db, data)
                         for eid in event_ids:
-                            await producer.publish(RMQ_QUEUE_NAME, {"new_pacs_event_id": eid})
+                            await producer.publish(RMQ_EXCHANGE_NAME, {"new_pacs_event_id": eid})
                     else:
                         logger.warning(f"Ожидался список в 'events.Data', получен {type(data)}: {data}")
 

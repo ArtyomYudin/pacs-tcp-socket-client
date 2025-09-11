@@ -61,11 +61,11 @@ class RabbitMQProducer:
 
         raise ConnectionError(f"Не удалось подключиться к RabbitMQ по адресу {self.host}:{self.port}")
 
-    async def publish(self, queue_name: str, message: Dict[str, any], max_retries: int = 3):
+    async def publish(self, exchange_name: str, message: Dict[str, any], max_retries: int = 3):
         """
         Асинхронная отправка сообщения в очередь с ограниченным числом попыток.
 
-        :param queue_name: имя очереди
+        :param exchange_name: имя обменника
         :param message: тело сообщения (должно быть сериализуемо в JSON)
         :param max_retries: максимальное количество попыток отправки (по умолчанию 3)
         """
@@ -87,24 +87,28 @@ class RabbitMQProducer:
                 # Сериализуем сообщение в JSON и кодируем в байты
                 body = json.dumps(message, ensure_ascii=False).encode('utf-8')
 
-                queue = await self.channel.declare_queue(queue_name, durable=True)
-                await self.channel.default_exchange.publish(
+                exchange = await self.channel.declare_exchange(exchange_name, type="fanout", durable=True)
+
+                # queue = await self.channel.declare_queue(queue_name, durable=True)
+                # await self.channel.default_exchange.publish(
+                await exchange.publish(
                     Message(
                         body=body,
                         delivery_mode=DeliveryMode.PERSISTENT
                     ),
-                    routing_key=queue.name
+                    routing_key=''
+                    # routing_key = queue.name
                 )
-                self.logger.info(f"Опубликовано сообщение в очередь '{queue_name}' (попытка {attempt})")
+                self.logger.info(f"Опубликовано сообщение в обменнике '{exchange_name}' (попытка {attempt})")
                 return  # Успешно — выходим из функции
 
             except Exception as e:
-                self.logger.error(f"[Попытка {attempt}/{max_retries}] Ошибка публикации в очередь '{queue_name}': {e}")
+                self.logger.error(f"[Попытка {attempt}/{max_retries}] Ошибка публикации в обменнике '{exchange_name}': {e}")
 
                 # Если это последняя попытка — пробрасываем исключение
                 if attempt == max_retries:
                     raise RuntimeError(
-                        f"Не удалось опубликовать сообщение в очередь '{queue_name}' после {max_retries} попыток") from e
+                        f"Не удалось опубликовать сообщение в обменнике '{exchange_name}' после {max_retries} попыток") from e
 
                 # Перед следующей попыткой — ждём немного
                 await asyncio.sleep(2 ** attempt)  # экспоненциальная задержка: 2, 4, 8 сек...
