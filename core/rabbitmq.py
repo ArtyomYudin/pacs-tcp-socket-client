@@ -1,30 +1,30 @@
 import asyncio
 import aio_pika
 import json
-from aio_pika import RobustConnection, RobustChannel, Message, DeliveryMode
+from aio_pika import Message, DeliveryMode
+from aio_pika.abc import AbstractRobustConnection, AbstractRobustChannel
 from aio_pika.exceptions import AMQPConnectionError
 from typing import Dict
 
-from utils.logger import get_logger
+# from utils.logger import get_logger
 
 
 class RabbitMQProducer:
     """
     Асинхронный продюсер RabbitMQ для публикации сообщений.
-
     Использует aio-pika (поддержка reconnect).
     """
 
-    def __init__(self, host: str, port: int, virtual_host: str, username: str, password: str, logger=None):
+    def __init__(self, host: str, port: int, virtual_host: str, username: str, password: str, logger):
         self.host = host
         self.port = port
         self.virtual_host = virtual_host
         self.username = username
         self.password = password
-        self.logger = logger or get_logger("rabbitmq")
+        self.logger = logger
 
-        self.connection: RobustConnection | None = None
-        self.channel: RobustChannel | None = None
+        self.connection: AbstractRobustConnection | None = None
+        self.channel: AbstractRobustChannel | None = None
 
     async def __aenter__(self):
         """Вход в асинхронный контекстный менеджер."""

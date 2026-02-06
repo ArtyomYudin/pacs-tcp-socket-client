@@ -4,9 +4,9 @@ from typing import List, Dict, Any
 
 from core.db import DB
 from core.tcpclient import TcpClient
-from utils.logger import get_logger
+# from utils.logger import get_logger
 
-logger = get_logger("tcp_client")
+# logger = get_logger("tcp_client")
 
 # def create_buffer(post_json_data):
 #     buffer = post_json_data.encode('utf-8')
@@ -77,10 +77,11 @@ async def chunk_data_async(client: TcpClient, timeout: int = 5) -> bytes:
     except asyncio.TimeoutError:
         return b""  # ничего не получили → проверим shutdown_event
 
-async def insert_event_to_db(db: DB, events: List[Dict[str, Any]]) -> List[str]:
+async def insert_event_to_db(db: DB, events: List[Dict[str, Any]], logger) -> List[str]:
     """
     Сохраняет события в БД.
 
+    :param logger:
     :param db: объект базы данных
     :param events: список событий (dict)
     :return: список ID вставленных событий
@@ -123,10 +124,11 @@ async def insert_event_to_db(db: DB, events: List[Dict[str, Any]]) -> List[str]:
 
     return results
 
-async def load_system_ap(db: DB, ap_list: List[Dict[str, Any]]):
+async def load_system_ap(db: DB, ap_list: List[Dict[str, Any]], logger):
     """
        Загружает список access points в БД.
 
+       :param logger:
        :param db: объект базы данных
        :param ap_list: список access points
        """
@@ -151,10 +153,11 @@ async def load_system_ap(db: DB, ap_list: List[Dict[str, Any]]):
             logger.error(f"Не удалось вставить/обновить AP {ap}: {e}")
 
 
-async def load_system_card_owner(db: DB, user_list: List[Dict[str, Any]]):
+async def load_system_card_owner(db: DB, user_list: List[Dict[str, Any]], logger):
     """
     Загружает список владельцев карт в БД.
 
+    :param logger:
     :param db: объект базы данных
     :param user_list: список пользователей
     """

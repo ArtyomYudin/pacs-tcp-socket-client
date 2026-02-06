@@ -1,7 +1,7 @@
 from asyncpg import create_pool, Pool
 
-from utils.logger import get_logger
-from celery.bin.result import result
+# from utils.logger import get_logger
+# from celery.bin.result import result
 
 
 class DB:
@@ -11,7 +11,7 @@ class DB:
     Использует библиотеку asyncpg и поддерживает автоматическое
     подключение при выполнении запросов.
     """
-    def __init__(self, user: str, password: str, host: str, database: str, logger = None):
+    def __init__(self, user: str, password: str, host: str, database: str, logger):
         """
         Инициализация параметров подключения.
 
@@ -26,7 +26,7 @@ class DB:
         self.host = host
         self.database = database
         self.pool: Pool | None = None
-        self.logger = logger or get_logger("DB")
+        self.logger = logger
 
     async def connect(self):
         """Создание пула соединений, если он ещё не создан."""

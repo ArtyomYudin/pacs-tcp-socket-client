@@ -1,4 +1,5 @@
 asyncpg
 celery
+celery-types
 aio-pika
 python-dotenv

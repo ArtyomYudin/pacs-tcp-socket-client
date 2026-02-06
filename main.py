@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import signal
-import sys
+# import sys
 
 from dotenv import load_dotenv
 from core.db import DB
@@ -20,7 +20,7 @@ from utils.functions import (
 
 # Загружаем переменные из .env
 load_dotenv()
-logger = get_logger("tcp_client")
+logger = get_logger(os.getenv("DEBUG_MODE", True))
 
 # Читаем настройки из .env
 # RabbitMQ
@@ -36,6 +36,7 @@ TCP_SERVER_HOST = os.getenv("TCP_SERVER_HOST", "localhost")
 TCP_SERVER_PORT = int(os.getenv("TCP_SERVER_PORT", 9000))
 TCP_SERVER_CERT = os.getenv("TCP_SERVER_CERT", "certs/cert.pem")
 TCP_SERVER_KEY = os.getenv("TCP_SERVER_KEY", "certs/key.pem")
+TCP_SERVER_CERT_CN = os.getenv("TCP_SERVER_CERT_CN", "SKD")
 
 # Postgres
 DB_USER = os.getenv("POSTGRES_USER", "postgres")
@@ -51,22 +52,23 @@ APLIST_CMD = json.dumps({"Command": "aplist", "Id": 1, "Version": 1})
 
 
 # глобальное событие остановки
-shutdown_event = asyncio.Event()
+# shutdown_event = asyncio.Event()
 
-producer_instance: RabbitMQProducer | None = None
+# producer_instance: RabbitMQProducer | None = None
+#
+#
+# def handle_exit(signum, frame):
+#     """Обработчик сигналов завершения (graceful shutdown)."""
+#     logger.info("Получен сигнал отключения...")
+#     shutdown_event.set()
+#     if producer_instance:
+#         producer_instance.close()  # жёстко рвём соединение
 
-
-def handle_exit(signum, frame):
-    """Обработчик сигналов завершения (graceful shutdown)."""
-    logger.info("Получен сигнал отключения...")
-    shutdown_event.set()
-    if producer_instance:
-        producer_instance.close()  # жёстко рвём соединение
-
-async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer):
+async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, shutdown_event):
     """
     Основной цикл приёма данных от PACS.
 
+    :param shutdown_event:
     :param client: экземпляр TcpClient
     :param db: подключение к Postgres
     :param producer: продюсер сообщений RabbitMQ
@@ -78,7 +80,14 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer):
 
     while not shutdown_event.is_set():
         try:
-            raw_data = await chunk_data_async(client)
+            try:
+                raw_data = await asyncio.wait_for(
+                    chunk_data_async(client),
+                    timeout=5
+                )
+            except asyncio.TimeoutError:
+                continue
+            # raw_data = await chunk_data_async(client)
             if not raw_data or len(raw_data) < 4:
                 logger.warning("Получены пустые или недействительные данные")
                 continue # просто проверили таймаут → снова в цикл
@@ -101,7 +110,7 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer):
                 case "events":
                     logger.debug(f"RECEIVED: {received}")
                     if isinstance(data, list):
-                        event_ids = await insert_event_to_db(db, data)
+                        event_ids = await insert_event_to_db(db, data, logger)
                         for eid in event_ids:
                             await producer.publish(RMQ_EXCHANGE_NAME, {"new_pacs_event_id": eid})
                     else:
@@ -109,13 +118,13 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer):
 
                 case "userlist":
                     if isinstance(data, list):
-                        await load_system_card_owner(db, data)
+                        await load_system_card_owner(db, data, logger)
                     else:
                         logger.warning(f"Ожидался список в 'userlist.Data', получен {type(data)}: {data}")
 
                 case "aplist":
                     if isinstance(data, list):
-                        await load_system_ap(db, data)
+                        await load_system_ap(db, data, logger)
                     else:
                         logger.warning(f"Ожидался список в 'aplist.Data', получен {type(data)}: {data}")
 
@@ -123,8 +132,11 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer):
                     logger.warning(f"Неизвестная или отсутствующая команда: {received}")
 
         except Exception as e:
-            logger.error(f"Ошибка в receive_data: {e}")
-            await asyncio.sleep(1)  # чтобы не зациклиться
+            if shutdown_event.is_set():
+                logger.info("receive_data остановлен")
+            else:
+                logger.error(f"Ошибка в receive_data: {e}")
+            await asyncio.sleep(1) # чтобы не зациклиться
 
 
 async def main():
@@ -134,18 +146,29 @@ async def main():
     Инициализация БД, RabbitMQ и TCP клиента.
     Запуск цикла обработки данных.
     """
+    shutdown_event = asyncio.Event()
 
-    db = DB(user=DB_USER, password=DB_PASSWORD, host=DB_HOST, database=DB_NAME)
+    loop = asyncio.get_running_loop()
+
+
+    def _shutdown():
+        logger.info("Получен сигнал завершения, останавливаемся...")
+        shutdown_event.set()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, _shutdown)
+
+    db = DB(user=DB_USER, password=DB_PASSWORD, host=DB_HOST, database=DB_NAME, logger=logger)
     await db.connect()
 
-    # global producer_instance
-    loop = asyncio.get_event_loop()
-    loop.add_signal_handler(signal.SIGINT, lambda: asyncio.create_task(shutdown()))
-    loop.add_signal_handler(signal.SIGTERM, lambda: asyncio.create_task(shutdown()))
+    # # global producer_instance
+    # loop = asyncio.get_event_loop()
+    # loop.add_signal_handler(signal.SIGINT, lambda *args: asyncio.create_task(shutdown()))
+    # loop.add_signal_handler(signal.SIGTERM, lambda *args: asyncio.create_task(shutdown()))
 
-    async def shutdown():
-        logger.info("Получен сигнал отключения...")
-        shutdown_event.set()
+    # async def shutdown():
+    #     logger.info("Получен сигнал отключения...")
+    #     shutdown_event.set()
         
     try:
         async with RabbitMQProducer(
@@ -153,27 +176,29 @@ async def main():
                 port=RMQ_PORT,
                 virtual_host=RMQ_VIRTUAL_HOST,
                 username=RMQ_USER,
-                password=RMQ_PASSWORD
+                password=RMQ_PASSWORD,
+                logger=logger
         ) as producer, TcpClient(
             host=TCP_SERVER_HOST,
             port=TCP_SERVER_PORT,
             server_cert=TCP_SERVER_CERT,
             server_key=TCP_SERVER_KEY,
+            server_cert_cn=TCP_SERVER_CERT_CN,
             logger=logger,
         ) as client:
             logger.info("Клиент PACS TCP запущен")
-            await receive_data(client, db, producer)
+            await receive_data(client, db, producer, shutdown_event)
     except Exception as e:
         logger.error(f"TCP соединение не удалось: {e}")
-        sys.exit(1)
+        # sys.exit(1)
     finally:
         logger.info("Закрытие соединений...")
         await db.close()
         logger.info("DB закрыта")
 
 if __name__ == "__main__":
-
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-         handle_exit(None, None)
+    asyncio.run(main())
+    # try:
+    #     asyncio.run(main())
+    # except KeyboardInterrupt:
+    #      handle_exit(None, None)

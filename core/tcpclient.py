@@ -1,6 +1,6 @@
 import asyncio
 import ssl
-from utils.logger import get_logger
+# from utils.logger import get_logger
 
 class TcpClient:
     """
@@ -9,7 +9,7 @@ class TcpClient:
     Позволяет подключаться к удалённому серверу,
     отправлять и получать данные по защищённому соединению.
     """
-    def __init__(self, host: str, port: int, server_cert: str, server_key: str, logger=None, use_ssl: bool = True):
+    def __init__(self, host: str, port: int, server_cert: str, server_key: str, server_cert_cn: str, logger, use_ssl: bool = True):
         """
         Инициализация клиента.
 
@@ -17,6 +17,7 @@ class TcpClient:
         :param port: TCP порт
         :param server_cert: путь к сертификату сервера
         :param server_key: путь к приватному ключу
+        :param server_cert_cn:  CN имя для проверки сертификата
         :param logger: объект логгера (если None → создаётся дефолтный)
         :param use_ssl: использовать ли SSL/TLS
         """
@@ -24,11 +25,12 @@ class TcpClient:
         self.port = port
         self.server_cert = server_cert
         self.server_key = server_key
+        self.server_cert_cn = server_cert_cn
         self.use_ssl = use_ssl
 
         self.reader: asyncio.StreamReader | None = None
         self.writer: asyncio.StreamWriter | None = None
-        self.logger = logger or get_logger("tcp_client")
+        self.logger = logger
 
     async def __aenter__(self):
         """Поддержка `async with TcpClient()`"""
@@ -70,7 +72,7 @@ class TcpClient:
         for attempt in range(retries):
             try:
                 self.reader, self.writer = await asyncio.wait_for(
-                    asyncio.open_connection(self.host, self.port, ssl=ssl_context, server_hostname='SKD'),
+                    asyncio.open_connection(self.host, self.port, ssl=ssl_context, server_hostname=self.server_cert_cn),
                     timeout=timeout
                 )
                 self.logger.info(f"Подключено к {self.host}:{self.port}")
