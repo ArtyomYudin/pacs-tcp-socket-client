@@ -3,3 +3,4 @@ celery
 celery-types
 aio-pika
 python-dotenv
+pydantic-settings

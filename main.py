@@ -2,12 +2,14 @@ import asyncio
 import json
 import os
 import signal
-# import sys
 
 from dotenv import load_dotenv
+from core.settings import settings
 from core.db import DB
+from rabbitmq.handlers import rmq_handler
 from core.tcpclient import TcpClient
-from core.rabbitmq import RabbitMQProducer
+from rabbitmq.consumer import RabbitMQConsumer
+from rabbitmq.producer import RabbitMQProducer
 from utils.logger import get_logger
 
 from utils.functions import (
@@ -18,38 +20,7 @@ from utils.functions import (
     load_system_card_owner
 )
 
-# Загружаем переменные из .env
-load_dotenv()
-logger = get_logger(os.getenv("DEBUG_MODE", True))
-
-# Читаем настройки из .env
-# RabbitMQ
-RMQ_HOST = os.getenv("RMQ_HOST", "rabbitmq")
-RMQ_PORT = int(os.getenv("RMQ_PORT", 5672))
-RMQ_VIRTUAL_HOST = os.getenv("RMQ_VIRTUAL_HOST", "/")
-RMQ_USER = os.getenv("RMQ_USER", "guest")
-RMQ_PASSWORD = os.getenv("RMQ_PASSWORD", "guest")
-RMQ_EXCHANGE_NAME = os.getenv("RMQ_EXCHANGE_NAME", "pacs_client")
-
-# TCP сервер
-TCP_SERVER_HOST = os.getenv("TCP_SERVER_HOST", "localhost")
-TCP_SERVER_PORT = int(os.getenv("TCP_SERVER_PORT", 9000))
-TCP_SERVER_CERT = os.getenv("TCP_SERVER_CERT", "certs/cert.pem")
-TCP_SERVER_KEY = os.getenv("TCP_SERVER_KEY", "certs/key.pem")
-TCP_SERVER_CERT_CN = os.getenv("TCP_SERVER_CERT_CN", "SKD")
-
-# Postgres
-DB_USER = os.getenv("POSTGRES_USER", "postgres")
-DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
-DB_NAME = os.getenv("POSTGRES_DB", "pacs")
-DB_HOST = os.getenv("POSTGRES_HOST", "postgres")
-
-# Команды
-FILTER_EVENTS_CMD = json.dumps({"Command": "filterevents", "Id": 1, "Version": 1, "Filter": 1})
-PING_CMD = json.dumps({"Command": "ping", "Id": 1, "Version": 1})
-USERLIST_CMD = json.dumps({"Command": "userlist", "Id": 1, "Version": 1})
-APLIST_CMD = json.dumps({"Command": "aplist", "Id": 1, "Version": 1})
-
+logger = get_logger(settings.DEBUG_MODE)
 
 # глобальное событие остановки
 # shutdown_event = asyncio.Event()
@@ -74,9 +45,9 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
     :param producer: продюсер сообщений RabbitMQ
     """
     """Основной цикл приёма данных от PACS"""
-    await client.send(create_buffer(FILTER_EVENTS_CMD))
-    await client.send(create_buffer(APLIST_CMD))
-    await client.send(create_buffer(USERLIST_CMD))
+    await client.send(create_buffer(settings.FILTER_EVENTS_CMD))
+    await client.send(create_buffer(settings.APLIST_CMD))
+    await client.send(create_buffer(settings.USERLIST_CMD))
 
     while not shutdown_event.is_set():
         try:
@@ -104,7 +75,7 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
 
             match command:
                 case "ping":
-                    await client.send(create_buffer(PING_CMD))
+                    await client.send(create_buffer(settings.PING_CMD))
                     logger.debug(f"RECEIVED: {received}")
 
                 case "events":
@@ -112,7 +83,7 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
                     if isinstance(data, list):
                         event_ids = await insert_event_to_db(db, data, logger)
                         for eid in event_ids:
-                            await producer.publish(RMQ_EXCHANGE_NAME, {"new_pacs_event_id": eid})
+                            await producer.publish(settings.RMQ_EVENTS_EXCHANGE_NAME, {"new_pacs_event_id": eid})
                     else:
                         logger.warning(f"Ожидался список в 'events.Data', получен {type(data)}: {data}")
 
@@ -127,6 +98,16 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
                         await load_system_ap(db, data, logger)
                     else:
                         logger.warning(f"Ожидался список в 'aplist.Data', получен {type(data)}: {data}")
+
+                case "addcard":
+                    logger.debug(f"Ответ от команды addcard: {received}")
+                case "editcard":
+                    logger.debug(f"Ловим ошибки на загрузке карты: {received}")
+                case "loadcard":
+                    logger.debug(f"Ответ от команды loadcard: {received}")
+                case "delcard":
+                    err = received.get("ErrCode")
+                    logger.debug(f"Ответ от команды delcard: {received}")
 
                 case _:
                     logger.warning(f"Неизвестная или отсутствующая команда: {received}")
@@ -158,7 +139,12 @@ async def main():
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, _shutdown)
 
-    db = DB(user=DB_USER, password=DB_PASSWORD, host=DB_HOST, database=DB_NAME, logger=logger)
+    db = DB(
+        user=settings.DATABASE_USER,
+        password=settings.DATABASE_PASSWORD,
+        host=settings.DATABASE_HOST,
+        database=settings.DATABASE_NAME,
+        logger=logger)
     await db.connect()
 
     # # global producer_instance
@@ -171,23 +157,42 @@ async def main():
     #     shutdown_event.set()
         
     try:
-        async with RabbitMQProducer(
-                host=RMQ_HOST,
-                port=RMQ_PORT,
-                virtual_host=RMQ_VIRTUAL_HOST,
-                username=RMQ_USER,
-                password=RMQ_PASSWORD,
+        async with (
+            RabbitMQConsumer(
+                host=settings.RMQ_HOST,
+                port=settings.RMQ_PORT,
+                virtual_host=settings.RMQ_VIRTUAL_HOST,
+                username=settings.RMQ_USER,
+                password=settings.RMQ_PASSWORD,
                 logger=logger
-        ) as producer, TcpClient(
-            host=TCP_SERVER_HOST,
-            port=TCP_SERVER_PORT,
-            server_cert=TCP_SERVER_CERT,
-            server_key=TCP_SERVER_KEY,
-            server_cert_cn=TCP_SERVER_CERT_CN,
-            logger=logger,
-        ) as client:
-            logger.info("Клиент PACS TCP запущен")
-            await receive_data(client, db, producer, shutdown_event)
+            ) as consumer,
+            RabbitMQProducer(
+                    host=settings.RMQ_HOST,
+                    port=settings.RMQ_PORT,
+                    virtual_host=settings.RMQ_VIRTUAL_HOST,
+                    username=settings.RMQ_USER,
+                    password=settings.RMQ_PASSWORD,
+                    logger=logger
+            ) as producer, TcpClient(
+                host=settings.TCP_SERVER_HOST,
+                port=settings.TCP_SERVER_PORT,
+                server_cert=settings.TCP_SERVER_CERT,
+                server_key=settings.TCP_SERVER_KEY,
+                server_cert_cn=settings.TCP_SERVER_CERT_CN,
+                logger=logger,
+            ) as client):
+                logger.info("Клиент PACS TCP запущен")
+                await consumer.connect()
+
+                # Определяем обработчик внутри области видимости, чтобы захватить 'client'
+                async def _rmq_handler_wrapped(message):
+                    return await rmq_handler(message, client)
+
+                # Регистрируем обработчики очередей
+                # await consumer.consume("events", events_handler)
+                await consumer.consume(settings.RMQ_COMMANDS_EXCHANGE_NAME, "pacs_client", _rmq_handler_wrapped)
+
+                await receive_data(client, db, producer, shutdown_event)
     except Exception as e:
         logger.error(f"TCP соединение не удалось: {e}")
         # sys.exit(1)

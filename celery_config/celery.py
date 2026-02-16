@@ -1,7 +1,9 @@
 from celery import Celery
 
+from core.settings import settings
+
 app = Celery('pacs_tcp_client',
-             broker='amqp://pacs_tcp_client:97OUWipH4txB@rabbitmq/it_support',
-             backend='rpc://',
+             broker=settings.CELERY_BROKER_URL,
+             backend=settings.CELERY_RESULT_BACKEND,
              include=['celery_config.tasks']
              )
