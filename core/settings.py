@@ -1,7 +1,6 @@
 import json
 import os
 from pydantic_settings import BaseSettings
-from typing import Optional, List
 from dotenv import load_dotenv
 
 load_dotenv()

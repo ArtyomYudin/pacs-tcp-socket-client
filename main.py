@@ -1,9 +1,7 @@
 import asyncio
 import json
-import os
 import signal
 
-from dotenv import load_dotenv
 from core.settings import settings
 from core.db import DB
 from rabbitmq.handlers import rmq_handler
@@ -106,7 +104,7 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
                 case "loadcard":
                     logger.debug(f"Ответ от команды loadcard: {received}")
                 case "delcard":
-                    err = received.get("ErrCode")
+                    # err = received.get("ErrCode")
                     logger.debug(f"Ответ от команды delcard: {received}")
 
                 case _:

@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 from typing import Dict
 
@@ -76,14 +75,14 @@ def get_delete_card_command(event_id: str, card_number: int) -> Dict:
         "CardNum": card_number,
     }
 
-def get_state_card_command(event_id: str, card_number: int) -> Dict:
-    """Генерирует команду статуса карты"""
-    return {
-        "Command": "cardstatelist",
-        "Id": event_id,
-        "Version": settings.REVERS_VERSION,
-        "CardNum": [card_number],
-    }
+# def get_state_card_command(event_id: str, card_number: int) -> Dict:
+#     """Генерирует команду статуса карты"""
+#     return {
+#         "Command": "cardstatelist",
+#         "Id": event_id,
+#         "Version": settings.REVERS_VERSION,
+#         "CardNum": [card_number],
+#     }
 
 def get_photo_timestamp(dt: datetime) -> str:
     """Форматирует дату для имени файла фото: 'dd-mm-yyyy-HH-MM-SS'"""

@@ -5,8 +5,7 @@ from datetime import datetime, timedelta
 
 from utils.functions import create_buffer, calculate_card_number
 from utils.logger import get_logger
-from utils.revers_commands import get_edit_card_command, get_load_card_command, get_delete_card_command, \
-    get_add_card_command, get_state_card_command
+from utils.revers_commands import get_load_card_command, get_delete_card_command, get_add_card_command
 
 # from rabbitmq.schemas import Event
 #
@@ -48,11 +47,9 @@ async def rmq_handler(message, tcp_client):
 
             load_cmd = get_load_card_command(event_id, revers_card_number)
             delete_cmd = get_delete_card_command(event_id, revers_card_number)
-            state_cmd =get_state_card_command(event_id, revers_card_number)
 
             # запрет использования карты
             await tcp_client.send(create_buffer(json.dumps(load_cmd)))
-            # await tcp_client.send(create_buffer(json.dumps(state_cmd)))
             await asyncio.sleep(2)
             # удаление карты
             await tcp_client.send(create_buffer(json.dumps(delete_cmd)))

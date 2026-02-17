@@ -1,7 +1,6 @@
 import asyncio
 import aio_pika
-from aio_pika import IncomingMessage
-from aio_pika.abc import AbstractRobustConnection, AbstractRobustChannel
+from aio_pika.abc import AbstractRobustConnection, AbstractRobustChannel, AbstractIncomingMessage
 from aio_pika.exceptions import AMQPConnectionError
 
 
@@ -64,22 +63,27 @@ class RabbitMQConsumer:
         if not self.channel:
             raise RuntimeError("Канал RabbitMQ не инициализирован. Сначала вызовите метод connect().")
 
+        # Объявляем Exchange
         exchange = await self.channel.declare_exchange(
             exchange_name,
             aio_pika.ExchangeType.FANOUT,
             durable=True
         )
-
+        # Объявляем Queue
+        # Имя очереди лучше делать явным, если нужно, чтобы она не исчезала после отключения
         queue = await self.channel.declare_queue(f"{exchange_name}.{queue_name}", durable=True)
-        await queue.bind(exchange_name)  # все сообщения из exchange попадают в очередь
 
-        async def wrapper(message: IncomingMessage):
+        # Биндим очередь к обменнику
+        # Для FANOUT routing_key игнорируется
+        await queue.bind(exchange)  # все сообщения из exchange попадают в очередь
+
+        async def wrapper(message: AbstractIncomingMessage):
             await self._handle_message(message, handler)
 
         await queue.consume(wrapper)
         self.logger.info(f"Начал слушать очередь {exchange_name}.{queue_name}")
 
-    async def _handle_message(self, message: IncomingMessage, handler):
+    async def _handle_message(self, message: AbstractIncomingMessage, handler):
         """Вызов пользовательского обработчика"""
         try:
             async with message.process():  # подтверждение ack/nack автоматически
