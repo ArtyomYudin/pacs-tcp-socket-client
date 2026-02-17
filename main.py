@@ -1,7 +1,9 @@
 import asyncio
 import json
 import signal
+from datetime import datetime, timedelta
 
+from core.command_manager import CommandManager
 from core.settings import settings
 from core.db import DB
 from rabbitmq.handlers import rmq_handler
@@ -17,8 +19,11 @@ from utils.functions import (
     load_system_ap,
     load_system_card_owner
 )
+from utils.revers_commands import get_edit_card_command, get_delete_card_command
 
 logger = get_logger(settings.DEBUG_MODE)
+
+command_manager = CommandManager(logger)
 
 # глобальное событие остановки
 # shutdown_event = asyncio.Event()
@@ -33,14 +38,15 @@ logger = get_logger(settings.DEBUG_MODE)
 #     if producer_instance:
 #         producer_instance.close()  # жёстко рвём соединение
 
-async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, shutdown_event):
+async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, shutdown_event, command_manager):
     """
     Основной цикл приёма данных от PACS.
 
-    :param shutdown_event:
     :param client: экземпляр TcpClient
     :param db: подключение к Postgres
     :param producer: продюсер сообщений RabbitMQ
+    :param shutdown_event:
+    :param command_manager: Менеджер ожидающих команд
     """
     """Основной цикл приёма данных от PACS"""
     await client.send(create_buffer(settings.FILTER_EVENTS_CMD))
@@ -98,14 +104,68 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
                         logger.warning(f"Ожидался список в 'aplist.Data', получен {type(data)}: {data}")
 
                 case "addcard":
+                    err = received.get("ErrCode")
+                    event_id = received.get("Id")
+
                     logger.debug(f"Ответ от команды addcard: {received}")
+
+                    cmd = command_manager.get(event_id)
+                    if not cmd:
+                        return
+                    if err == 9:
+                        logger.info("Карта существует → пробуем editcard")
+
+                        now = datetime.now()
+                        dt_start = now - timedelta(hours=1)
+                        dt_end = now + timedelta(hours=8)
+
+                        edit_cmd = get_edit_card_command(
+                            event_id,
+                            cmd["card_number"],
+                            dt_start,
+                            dt_end
+                        )
+
+                        command_manager.update_stage(event_id, "editcard")
+                        await client.send(create_buffer(json.dumps(edit_cmd)))
+
+                    elif err == 0:
+                        command_manager.remove(event_id)
+
                 case "editcard":
-                    logger.debug(f"Ловим ошибки на загрузке карты: {received}")
+                    err = received.get("ErrCode")
+                    event_id = received.get("Id")
+
+                    logger.debug(f"Ответ от команды editcard: {received}")
+
+                    if err == 0 :
+                        command_manager.remove(event_id)
+
                 case "loadcard":
                     logger.debug(f"Ответ от команды loadcard: {received}")
                 case "delcard":
-                    # err = received.get("ErrCode")
+                    err = received.get("ErrCode")
+                    event_id = received.get("Id")
+
                     logger.debug(f"Ответ от команды delcard: {received}")
+
+                    cmd = command_manager.get(event_id)
+                    if not cmd:
+                        return
+
+                    if err == 6:
+                        logger.info(f"Повторное удаление карты {cmd["card_number"]}")
+
+                        delete_cmd = get_delete_card_command(
+                            event_id,
+                            cmd["card_number"]
+                        )
+
+                        await asyncio.sleep(10)
+                        await client.send(create_buffer(json.dumps(delete_cmd)))
+
+                    if err == 0:
+                        command_manager.remove(event_id)
 
                 case _:
                     logger.warning(f"Неизвестная или отсутствующая команда: {received}")
@@ -184,13 +244,13 @@ async def main():
 
                 # Определяем обработчик внутри области видимости, чтобы захватить 'client'
                 async def _rmq_handler_wrapped(message):
-                    return await rmq_handler(message, client)
+                    return await rmq_handler(message, client, command_manager)
 
                 # Регистрируем обработчики очередей
                 # await consumer.consume("events", events_handler)
                 await consumer.consume(settings.RMQ_COMMANDS_EXCHANGE_NAME, "pacs_client", _rmq_handler_wrapped)
 
-                await receive_data(client, db, producer, shutdown_event)
+                await receive_data(client, db, producer, shutdown_event, command_manager)
     except Exception as e:
         logger.error(f"TCP соединение не удалось: {e}")
         # sys.exit(1)

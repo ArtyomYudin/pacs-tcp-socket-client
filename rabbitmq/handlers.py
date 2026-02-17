@@ -16,7 +16,7 @@ from utils.revers_commands import get_load_card_command, get_delete_card_command
 #
 logger = get_logger(os.getenv("DEBUG_MODE", True))
 
-async def rmq_handler(message, tcp_client):
+async def rmq_handler(message, tcp_client, command_manager):
     # Текущее время как точка отсчёта
     request_tstamp = datetime.now()
     dt_start = request_tstamp - timedelta(hours=1)  # -1 час
@@ -40,11 +40,24 @@ async def rmq_handler(message, tcp_client):
                 dt_start,
                 dt_end
             )
+            command_manager.add(
+                event_id=event_id,
+                card_number=revers_card_number,
+                event_type=event_type,
+                stage="addcard"
+            )
+
             await tcp_client.send(create_buffer(json.dumps(add_cmd)))
 
         case "wdraw":
             logger.info(f"Удаление гостевой карты {raw_card_number}")
 
+            command_manager.add(
+                event_id=event_id,
+                card_number=revers_card_number,
+                event_type=event_type,
+                stage="loadcard"
+            )
             load_cmd = get_load_card_command(event_id, revers_card_number)
             delete_cmd = get_delete_card_command(event_id, revers_card_number)
 
@@ -52,4 +65,5 @@ async def rmq_handler(message, tcp_client):
             await tcp_client.send(create_buffer(json.dumps(load_cmd)))
             await asyncio.sleep(2)
             # удаление карты
+            command_manager.update_stage(event_id, "delcard")
             await tcp_client.send(create_buffer(json.dumps(delete_cmd)))
