@@ -53,6 +53,7 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
     await client.send(create_buffer(settings.APLIST_CMD))
     await client.send(create_buffer(settings.USERLIST_CMD))
 
+    logger.debug(command_manager)
     while not shutdown_event.is_set():
         try:
             try:
@@ -104,14 +105,16 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
                         logger.warning(f"Ожидался список в 'aplist.Data', получен {type(data)}: {data}")
 
                 case "addcard":
+                    # logger.debug(f"Pending before get: {command_manager.all()}")
                     err = received.get("ErrCode")
-                    event_id = received.get("Id")
+                    event_id = int(received.get("Id"))
 
                     logger.debug(f"Ответ от команды addcard: {received}")
 
                     cmd = command_manager.get(event_id)
                     if not cmd:
-                        return
+                        logger.warning(f"Нет ожидающей команды для event_id={event_id}")
+                        continue
                     if err == 9:
                         logger.info("Карта существует → пробуем editcard")
 
@@ -134,24 +137,26 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
 
                 case "editcard":
                     err = received.get("ErrCode")
-                    event_id = received.get("Id")
+                    event_id = int(received.get("Id"))
 
                     logger.debug(f"Ответ от команды editcard: {received}")
 
-                    if err == 0 :
+                    if err in (0, 10):
                         command_manager.remove(event_id)
 
                 case "loadcard":
                     logger.debug(f"Ответ от команды loadcard: {received}")
                 case "delcard":
+                    # logger.debug(f"Pending before get: {command_manager.all()}")
                     err = received.get("ErrCode")
-                    event_id = received.get("Id")
+                    event_id = int(received.get("Id"))
 
                     logger.debug(f"Ответ от команды delcard: {received}")
 
                     cmd = command_manager.get(event_id)
                     if not cmd:
-                        return
+                        logger.warning(f"Нет ожидающей команды для event_id={event_id}")
+                        continue
 
                     if err == 6:
                         logger.info(f"Повторное удаление карты {cmd["card_number"]}")
@@ -164,7 +169,7 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
                         await asyncio.sleep(10)
                         await client.send(create_buffer(json.dumps(delete_cmd)))
 
-                    if err == 0:
+                    if err in (0, 10):
                         command_manager.remove(event_id)
 
                 case _:

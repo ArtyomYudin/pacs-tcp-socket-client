@@ -23,7 +23,7 @@ class CommandManager:
 
     def remove(self, event_id: int):
         if event_id in self._pending:
-            self.logger.debug(f"Удаление ожидающей команды {event_id}")
+            self.logger.debug(f"Удаление ожидающей команды для event_id={event_id}")
             self._pending.pop(event_id, None)
 
     def all(self):

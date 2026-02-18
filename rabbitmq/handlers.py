@@ -24,7 +24,7 @@ async def rmq_handler(message, tcp_client, command_manager):
 
     message_body = json.loads(message.body.decode())
 
-    event_id = message_body["event_id"]
+    event_id = int(message_body["event_id"])
     raw_card_number = message_body["card_number"]
     revers_card_number = calculate_card_number(raw_card_number)
     event_type = message_body["event_type"]

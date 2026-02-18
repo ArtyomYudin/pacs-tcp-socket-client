@@ -10,7 +10,7 @@ def _format_datetime(dt: datetime) -> str:
 
 
 def get_edit_card_command(
-    event_id: str,
+    event_id: int,
     card_number: str,
     start_date: datetime,
     end_date: datetime
@@ -32,7 +32,7 @@ def get_edit_card_command(
 
 
 def get_add_card_command(
-    event_id: str,
+    event_id: int,
     card_number: int,
     start_date: datetime,
     end_date: datetime
@@ -53,7 +53,7 @@ def get_add_card_command(
     }
 
 
-def get_load_card_command(event_id: str, card_number: int) -> Dict:
+def get_load_card_command(event_id: int, card_number: int) -> Dict:
     """Генерирует команду загрузки/блокировки карты (wdraw)"""
     return {
         "Command": "loadcard",
@@ -66,7 +66,7 @@ def get_load_card_command(event_id: str, card_number: int) -> Dict:
     }
 
 
-def get_delete_card_command(event_id: str, card_number: int) -> Dict:
+def get_delete_card_command(event_id: int, card_number: int) -> Dict:
     """Генерирует команду удаления карты"""
     return {
         "Command": "delcard",
