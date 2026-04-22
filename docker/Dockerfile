@@ -14,6 +14,10 @@ RUN apt-get update && apt-get upgrade -y && \
 # set timezone
 RUN if [ ! -z "${TZ}" ]; then ln -snf "/usr/share/zoneinfo/${TZ}" /etc/localtime && echo "${TZ}" > /etc/timezone; fi
 
+# Создаём пользователя и группу с UID/GID 1001 (совпадает с fsGroup в K8s)
+RUN groupadd -g 1001 appuser && \
+    useradd -u 1001 -g appuser -m -s /bin/bash appuser
+
 WORKDIR /app
 
 RUN echo "export PATH=/opt/bitnami/python/bin:${PATH}" >> /root/.bashrc
@@ -23,5 +27,12 @@ RUN pip install --upgrade pip
 COPY . /app
 
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Меняем владельца директории приложения на непривилегированного пользователя
+RUN chown -R appuser:appuser /app
+
+# Переключаемся на непривилегированного пользователя
+USER 1001
+
 
 CMD ["python", "main.py"]
