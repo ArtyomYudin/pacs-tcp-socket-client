@@ -175,6 +175,9 @@ async def receive_data(client: TcpClient, db: DB, producer: RabbitMQProducer, sh
                 case _:
                     logger.warning(f"Неизвестная или отсутствующая команда: {received}")
 
+        except ConnectionError:
+            raise  # ВАЖНО
+
         except Exception as e:
             if shutdown_event.is_set():
                 logger.info("receive_data остановлен")
